@@ -29,6 +29,28 @@ The flagship **LAYA** decision model (`convaiinnovations/laya`, ModernBERT-large
 
 ---
 
+
+---
+
+## 📌 Available Formats & Precision Matrix
+
+The model is published on Hugging Face Hub at [**ameerhmz5/laya-modernbert-decision-90pct**](https://huggingface.co/ameerhmz5/laya-modernbert-decision-90pct) in all popular precisions:
+
+| Format / File | Precision / Quant | Size | Target Hardware & Runtime |
+| :--- | :--- | :--- | :--- |
+| **`model.safetensors`** | **FP16 / BF16** | **842 MB** | Universal default (PyTorch, Transformers, CUDA, MLX) |
+| **`model.bf16.safetensors`** | **Bfloat16** | **842 MB** | Modern NVIDIA GPUs (Ampere, Hopper H100/H200, Blackwell, TPU) |
+| **`model.fp16.safetensors`** | **Float16** | **842 MB** | Standard CUDA (T4, V100, RTX 30/40), MPS, DirectML |
+| **`model.fp8.safetensors`** | **FP8 (`e4m3fn`)** | **421 MB** | Cutting-edge FP8 for H100, H200, RTX 4090, Blackwell (~400MB) |
+| **`model.int8.safetensors`** | **INT8 (per-channel)**| **422 MB** | Ultra-compact INT8 for CPU servers & constrained edge (~400MB) |
+| **`laya.f16.gguf`** | **GGUF F16** | **842 MB** | `llama.cpp`, Ollama, local C++ / edge runtimes |
+| **`laya.q8_0.gguf`** | **GGUF Q8_0** | **496 MB** | Quantized `llama.cpp` & Ollama execution |
+| **`mlx/`** | **Apple Silicon FP16** | **842 MB** | macOS Unified Memory (M1/M2/M3/M4) (~8ms latency) |
+| **`mlx-8bit/`** | **Apple Silicon INT8** | **496 MB** | Memory-efficient macOS local deployment |
+| **`mlx-4bit/`** | **Apple Silicon INT4** | **311 MB** | Minimal footprint (~300MB) for MacBook Air / Mac mini |
+
+> **Note on Model Size**: ModernBERT-large has 421M parameters. At 16-bit (FP16/BF16), it is 842 MB. At 8-bit (FP8/INT8), it is 421 MB (~400MB format).
+
 ## 📦 What's Included
 
 ```
