@@ -1,0 +1,14 @@
+# Checkpoints generated during training
+checkpoint_epoch_*/
+checkpoint_latest/
+laya_finetuned_h100/
+models/
+
+# Python cache & logs
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# System files
+.DS_Store

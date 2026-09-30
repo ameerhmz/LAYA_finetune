@@ -1,0 +1,12 @@
+{
+  "total_samples": 47400,
+  "train_samples": 42660,
+  "test_samples": 4740,
+  "sources": {
+    "ag_news": 15000,
+    "emotion": 12000,
+    "boolq": 9400,
+    "typed_decisions": 8000,
+    "desktop_commands": 5000
+  }
+}
