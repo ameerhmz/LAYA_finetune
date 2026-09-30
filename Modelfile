@@ -1,0 +1,19 @@
+# Ollama Modelfile for LAYA Flagship ModernBERT Decision Model
+# Fine-tuned on NVIDIA H200 (47,400 questions · 90.61% Validation Accuracy)
+
+FROM convaiinnovations/laya
+
+# System Prompt defining LAYA's non-autoregressive calibrated decision nature
+SYSTEM """You are LAYA, a high-precision non-autoregressive System-1 decision engine based on ModernBERT-large (421M parameters). Given a state context (logs, text, JSON) and questions with candidate options, you evaluate exact mathematical probabilities in a single forward pass with zero generation hallucination."""
+
+# Model Parameters
+PARAMETER temperature 0.0
+PARAMETER top_k 1
+PARAMETER top_p 1.0
+PARAMETER stop "[SEP]"
+PARAMETER stop "</s>"
+
+# Template definition
+TEMPLATE """{{ if .System }}Context: {{ .System }}
+{{ end }}{{ if .Prompt }}Decision Request: {{ .Prompt }}
+{{ end }}Assessment: """
