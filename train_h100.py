@@ -341,12 +341,13 @@ def main():
     parser.add_argument("--checkpoint", type=str, default="convaiinnovations/laya", help="Base model (convaiinnovations/laya)")
     parser.add_argument("--output-dir", type=str, default="./laya_finetuned_h100", help="Output directory")
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs (default: 10)")
-    parser.add_argument("--batch-size", type=int, default=64, help="Batch size (64 or 128 for 80GB H100)")
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size (64, 128, or 256 for H100/H200)")
     parser.add_argument("--lr", type=float, default=3.0e-5, help="Learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight decay")
     parser.add_argument("--warmup-ratio", type=float, default=0.05, help="Warmup ratio")
     parser.add_argument("--max-len", type=int, default=512, help="Max sequence length")
     parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--resume", type=str, default=None, help="Resume training from checkpoint directory (e.g. ./checkpoint_epoch_2)")
     args = parser.parse_args()
 
     rank, world_size, local_rank, is_dist = setup_distributed()
@@ -359,9 +360,14 @@ def main():
         if hasattr(torch, "set_float32_matmul_precision"):
             torch.set_float32_matmul_precision("high")
 
+    if args.resume:
+        args.checkpoint = args.resume
+        if is_main:
+            print(f"🔄 Resuming training from checkpoint: {args.resume}")
+
     if is_main:
         print("=" * 80)
-        print("🚀 LAYA Flagship Decision Model — NVIDIA H100 Training Engine")
+        print("🚀 LAYA Flagship Decision Model — NVIDIA H100/H200 Training Engine")
         print(f"   Base Checkpoint    : {args.checkpoint} (Flagship ModernBERT-large 421M)")
         print(f"   Hardware           : {world_size}x GPU(s) ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
         print(f"   Batch Size / GPU   : {args.batch_size} (Effective batch: {args.batch_size * world_size * args.grad_accum})")
@@ -373,8 +379,8 @@ def main():
 
     # 1. Load Tokenizer & Config
     if is_main:
-        print("📥 Loading tokenizer and base config from Hugging Face...")
-    tok = AutoTokenizer.from_pretrained(args.checkpoint, subfolder="tokenizer")
+        print("📥 Loading tokenizer and base config...")
+    tok = AutoTokenizer.from_pretrained(args.checkpoint, subfolder="tokenizer" if not Path(args.checkpoint).is_dir() else None)
 
     from huggingface_hub import hf_hub_download
     from safetensors.torch import load_file
@@ -386,6 +392,14 @@ def main():
         cfg_path = hf_hub_download(args.checkpoint, "rl_agent_config.json")
         with open(cfg_path) as f:
             cfg = json.load(f)
+
+    start_epoch = 1
+    best_val_acc = 0.0
+    if args.resume and "training" in cfg:
+        start_epoch = cfg["training"].get("epoch", 0) + 1
+        best_val_acc = cfg["training"].get("validation_acc", 0.0)
+        if is_main:
+            print(f"   Resuming from Epoch {start_epoch} (Prior Validation Acc: {best_val_acc:.2f}%)")
 
     # 2. Build Datasets & Loaders
     train_dataset = DecisionDataset(args.train_data, tok, max_len=args.max_len)
@@ -476,7 +490,7 @@ def main():
     start_time = time.time()
     step_count = 0
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         if is_dist:
             train_sampler.set_epoch(epoch)
 
@@ -494,7 +508,7 @@ def main():
             qtypes = batch["qtypes"].to(device, non_blocking=True)
 
             use_amp = torch.cuda.is_available()
-            with torch.cuda.amp.autocast(enabled=use_amp, dtype=torch.bfloat16):
+            with torch.amp.autocast(device_type="cuda" if use_amp else "cpu", enabled=use_amp, dtype=torch.bfloat16):
                 logits, act = model(ids, mask, m_pos, m_mask, qtypes)
                 loss, dec_loss, act_loss = compute_calibrated_loss(
                     logits, targets, labels, m_mask, act
@@ -530,7 +544,7 @@ def main():
                 labels = batch["labels"].to(device)
                 qtypes = batch["qtypes"].to(device)
 
-                with torch.cuda.amp.autocast(enabled=use_amp, dtype=torch.bfloat16):
+                with torch.amp.autocast(device_type="cuda" if use_amp else "cpu", enabled=use_amp, dtype=torch.bfloat16):
                     logits, _ = model(ids, mask, m_pos, m_mask, qtypes)
 
                 preds = logits.argmax(dim=-1)
@@ -553,12 +567,16 @@ def main():
                 dtype=torch.float32,
             )
 
-            # Per-epoch checkpoint directory directly in root
-            epoch_dir = Path(f"./checkpoint_epoch_{epoch}")
-            latest_dir = Path("./checkpoint_latest")
-            for save_dir in [epoch_dir, latest_dir]:
+            # Checkpoint destinations: epoch dir, latest dir, and best dir
+            save_dirs = [Path(f"./checkpoint_epoch_{epoch}"), Path("./checkpoint_latest")]
+            is_best = val_acc > best_val_acc
+            if is_best:
+                best_val_acc = val_acc
+                save_dirs.append(Path("./checkpoint_best"))
+
+            state_dict = raw_model.state_dict()
+            for save_dir in save_dirs:
                 save_dir.mkdir(parents=True, exist_ok=True)
-                state_dict = raw_model.state_dict()
                 safetensors.torch.save_file(state_dict, str(save_dir / "model.safetensors"))
 
                 agent_cfg = {
@@ -587,14 +605,15 @@ def main():
 
                 tok.save_pretrained(str(save_dir / "tokenizer"))
 
-            print(f"💾 [Epoch {epoch}/{args.epochs}] Checkpoint saved to: {epoch_dir.resolve()} and {latest_dir.resolve()}\n")
+            best_tag = " ⭐ (NEW BEST!)" if is_best else ""
+            print(f"💾 [Epoch {epoch}/{args.epochs}] Checkpoint saved{best_tag}: ./checkpoint_epoch_{epoch}/ and ./checkpoint_latest/\n")
 
     if is_main:
         total_time = time.time() - start_time
         print("=" * 80)
-        print(f"🎉 All {args.epochs} Epochs Completed in {total_time / 60:.1f} minutes!")
-        print(f"   All {args.epochs} checkpoints saved in: ./checkpoint_epoch_1 through ./checkpoint_epoch_{args.epochs}")
-        print(f"   Latest checkpoint: ./checkpoint_latest/")
+        print(f"🎉 Training Completed in {total_time / 60:.1f} minutes!")
+        print(f"   Best Validation Accuracy: {best_val_acc:.2f}% (saved in ./checkpoint_best/)")
+        print(f"   Latest Checkpoint: ./checkpoint_latest/")
         print("=" * 80)
 
     if is_dist:

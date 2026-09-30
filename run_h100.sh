@@ -46,6 +46,11 @@ while [[ $# -gt 0 ]]; do
             LR="$2"
             shift 2
             ;;
+        --resume|-r)
+            RESUME="$2"
+            EXTRA_ARGS+=("--resume" "$2")
+            shift 2
+            ;;
         *)
             EXTRA_ARGS+=("$1")
             shift
@@ -53,7 +58,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "   Settings: Epochs=$EPOCHS, Batch Size=$BATCH_SIZE, Learning Rate=$LR"
+if [ -n "$RESUME" ]; then
+    echo "   Settings: Resuming from=$RESUME, Epochs=$EPOCHS, Batch Size=$BATCH_SIZE, Learning Rate=$LR"
+else
+    echo "   Settings: Epochs=$EPOCHS, Batch Size=$BATCH_SIZE, Learning Rate=$LR"
+fi
 
 if [ "$NUM_GPUS" -gt 1 ]; then
     echo "🚀 Launching Distributed Data Parallel with torchrun ($NUM_GPUS GPUs)..."
